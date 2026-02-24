@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📦 Inventario Bulk</title>
+    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-database-compat.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+        .container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 95%; max-width: 600px; }
+        .progress-container { background: #eee; border-radius: 10px; height: 10px; overflow: hidden; margin-bottom: 15px; }
+        #fill { background: #27ae60; width: 0%; height: 100%; transition: 0.5s; }
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .stat-card { background: #f8f9fa; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #eee; }
+        #lector { width: 100%; padding: 15px; border: 2px solid #3b82f6; border-radius: 8px; font-size: 16px; text-align: center; box-sizing: border-box; outline: none; margin-bottom: 10px; }
+        .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background: white; padding: 20px; border-radius: 12px; text-align: center; width: 85%; max-width: 320px; }
+        #nombreAuditor { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 16px; text-align: center; box-sizing: border-box; margin-bottom: 15px; text-transform: uppercase; outline: none; }
+        .btn-check { background: #2ecc71; color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 12px; width: 100%; }
+        .btn-anular { background: #e74c3c; }
+        .btn-iniciar { width: 100%; height: 45px; font-size: 16px; }
+        .ubi-header { color: #000000; padding: 10px 5px; margin: 10px 0; display: flex; justify-content: space-between; align-items: center; font-size: 14px; border-bottom: 1px solid #eee; background: #f8fafc; border-radius: 8px; }
+        .btn-cerrar { background: #64748b; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        .table-wrapper { width: 100%; overflow-x: auto; border: 1px solid #eee; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+        th { background: #f8f9fa; color: #64748b; padding: 10px; border-bottom: 2px solid #eee; }
+        td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: middle; }
+        .visto-row { background: #f0fdf4 !important; color: #166534; }
+        .input-incidencia { width: 100%; padding: 5px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 12px; box-sizing: border-box; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+<div id="modalPersona" class="modal">
+    <div class="modal-content">
+        <h3>Responsable para <b id="ubiSpan"></b></h3>
+        <input type="text" id="nombreAuditor" placeholder="SU NOMBRE..." autocomplete="off">
+        <button class="btn-check btn-iniciar" onclick="iniciar()">EMPEZAR</button>
+    </div>
+</div>
+
+<div class="container">
+    <div class="progress-container"><div id="fill"></div></div>
+    <div class="stats">
+        <div class="stat-card"><b id="countUbis">0</b><br><small>Ubicaciones</small></div>
+        <div class="stat-card"><b id="countPend" style="color:#e67e22">0</b><br><small>Pendientes</small></div>
+    </div>
+    <input type="text" id="lector" placeholder="ESCANEE UBICACIÓN..." autocomplete="off">
+    <div id="listaArea"><center><small style='color:gray'>Esperando carga...</small></center></div>
+</div>
+
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyDcHhz-f_oYGaEX2ABtYKqgVEyypSnuz_E",
+        authDomain: "inventariobulk.firebaseapp.com",
+        projectId: "inventariobulk",
+        storageBucket: "inventariobulk.firebasestorage.app",
+        messagingSenderId: "962249508789",
+        appId: "1:962249508789:web:53c38b692e41c10c8bfbfc",
+        databaseURL: "https://inventariobulk-default-rtdb.firebaseio.com"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    let dbLocal = [], ubiActiva = "", auditor = "";
+
+    db.ref('inventario_actual/items').on('value', snap => {
+        dbLocal = snap.val() || [];
+        actualizarUI();
+        if(ubiActiva) renderUbi();
+    });
+
+    document.getElementById('nombreAuditor').onkeydown = e => { if(e.key === 'Enter') iniciar(); };
+
+    document.getElementById('lector').onkeydown = e => {
+        if(e.key === 'Enter') {
+            const val = e.target.value.toUpperCase().trim();
+            if(dbLocal.some(i => i.datos[0] === val)) {
+                ubiActiva = val;
+                auditor = ""; // Siempre limpia el auditor para pedirlo de nuevo
+                document.getElementById('ubiSpan').innerText = val;
+                document.getElementById('nombreAuditor').value = ""; 
+                document.getElementById('modalPersona').style.display = 'flex';
+                setTimeout(() => document.getElementById('nombreAuditor').focus(), 150);
+            } else alert("Ubicación no encontrada.");
+            e.target.value = '';
+        }
+    };
+
+    function iniciar() {
+        const inputNombre = document.getElementById('nombreAuditor').value.toUpperCase().trim();
+        if(!inputNombre) return alert("Ingrese su nombre");
+        auditor = inputNombre;
+        document.getElementById('modalPersona').style.display = 'none';
+        renderUbi();
+    }
+
+    function cerrarUbicacion() {
+        ubiActiva = "";
+        auditor = "";
+        document.getElementById('listaArea').innerHTML = "<center><br><small style='color:gray'>Ubicación cerrada. Escanee la siguiente...</small></center>";
+        document.getElementById('lector').focus();
+    }
+
+    function renderUbi() {
+        const area = document.getElementById('listaArea');
+        const items = dbLocal.filter(i => i.datos[0] === ubiActiva);
+        let html = `
+            <div class="ubi-header">
+                <div>
+                    <span>📦 Ubicación: <b>${ubiActiva}</b></span><br>
+                    <span>👤 Responsable: <b>${auditor}</b></span>
+                </div>
+                <button class="btn-cerrar" onclick="cerrarUbicacion()">✖️ Cerrar</button>
+            </div>
+            <div class="table-wrapper">
+                <table>
+                    <thead><tr><th>CÓDIGO</th><th>CANT</th><th>INCIDENCIA</th><th>ACCIÓN</th></tr></thead>
+                    <tbody>
+        `;
+        items.forEach(i => {
+            html += `
+                <tr class="${i.visto ? 'visto-row' : ''}">
+                    <td><b>${i.datos[1]}</b></td>
+                    <td style="color:#3b82f6; font-weight:bold">${i.datos[2]}</td>
+                    <td><input type="text" class="input-incidencia" placeholder="Nota..." value="${i.incidencia || ''}" onchange="guardarIncidencia(${i.rowId}, this.value)"></td>
+                    <td><button class="btn-check ${i.visto ? 'btn-anular' : ''}" onclick="marcar(${i.rowId})">${i.visto ? 'ANULAR' : 'VISTO'}</button></td>
+                </tr>
+            `;
+        });
+        html += `</tbody></table></div>`;
+        area.innerHTML = html;
+    }
+
+    function marcar(id) {
+        const item = dbLocal[id];
+        if(item.visto && item.auditor !== auditor) return alert("Marcado por: " + item.auditor);
+        db.ref(`inventario_actual/items/${id}`).update({ visto: !item.visto, auditor: item.visto ? "" : auditor });
+    }
+
+    function guardarIncidencia(id, texto) {
+        db.ref(`inventario_actual/items/${id}`).update({ incidencia: texto.toUpperCase() });
+    }
+
+    function actualizarUI() {
+        const ubis = [...new Set(dbLocal.map(i => i.datos[0]))];
+        const pend = ubis.filter(u => dbLocal.filter(i => i.datos[0]===u).some(i => !i.visto)).length;
+        document.getElementById('countUbis').innerText = ubis.length;
+        document.getElementById('countPend').innerText = pend;
+        document.getElementById('fill').style.width = ubis.length ? ((ubis.length-pend)/ubis.length)*100+'%' : '0%';
+    }
+
+    document.addEventListener('contextmenu', e => e.preventDefault());
+    document.onkeydown = e => {
+        if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74)) || (e.ctrlKey && (e.keyCode == 85 || e.keyCode == 83))) return false;
+    };
+</script>
+</body>
+</html>
