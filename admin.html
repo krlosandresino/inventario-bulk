@@ -91,6 +91,8 @@
 
     let dataLocal = [];
 
+    // Lógica corregida: Enter en Usuario baja a Clave, Enter en Clave valida acceso
+    document.getElementById('user').onkeydown = e => { if(e.key === 'Enter') document.getElementById('pass').focus(); };
     document.getElementById('pass').onkeydown = e => { if(e.key === 'Enter') validarAcceso(); };
 
     function validarAcceso() {
