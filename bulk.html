@@ -4,13 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>📊 Inventario Bulk</title>
-    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-database-compat.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background-color: #f0f2f5; display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
         .container { background: white; padding: 20px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 95%; max-width: 600px; box-sizing: border-box; }
         .progress-container { background: #eee; border-radius: 10px; height: 10px; overflow: hidden; margin-bottom: 15px; }
-        #fill { background: #27ae60; width: 0%; height: 100%; transition: 0.5s; }
+        #fill { background: #27ae60; width: 0%; height: 100%; transition: width 0.5s ease-out; will-change: width; }
         .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
         .stat-card { background: #f8f9fa; padding: 10px; border-radius: 8px; text-align: center; border: 1px solid #eee; }
         #lector { width: 100%; padding: 15px; border: 2px solid #3b82f6; border-radius: 8px; font-size: 16px; text-align: center; box-sizing: border-box; outline: none; margin-bottom: 10px; }
@@ -79,6 +77,8 @@
     <div id="listaArea"><center><small style='color:gray'>Esperando ubicaciones...</small></center></div>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.1.1/firebase-database-compat.js"></script>
 <script>
     const firebaseConfig = {
         apiKey: "AIzaSyDcHhz-f_oYGaEX2ABtYKqgVEyypSnuz_E",
@@ -92,14 +92,12 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     
-    // 1. REESTRUCTURACIÓN DE MEMORIA
-    let dbLocal = {}; // Convertido a Diccionario (Objeto)
-    let mapaUbicaciones = {}; // Índice O(1) para búsqueda rápida
+    let dbLocal = {}; 
+    let mapaUbicaciones = {}; 
     
     let dbSobrantes = [], ubiActiva = "", auditor = "", bloqueosActivos = {};
     let dbSobrantesObj = {}; 
     let timeoutUI = null;
-    let enfocarSiguiente = false; 
 
     let wakeLock = null;
     const solicitarWakeLock = async () => {
@@ -122,7 +120,6 @@
         }
     }
 
-    // 2. OPTIMIZACIÓN DE RENDER Y LECTURA
     function optimizarRender() {
         clearTimeout(timeoutUI);
         timeoutUI = setTimeout(() => {
@@ -150,8 +147,6 @@
         }
 
         actualizarUI(); 
-        
-        // Aisla el renderizado visual solo si el item pertenece a la ubi activa
         if(ubiActiva && val.datos && val.datos[0] === ubiActiva) optimizarRender();
     });
 
@@ -160,14 +155,13 @@
         dbLocal[snap.key] = val; 
         actualizarUI(); 
 
-        // 3. PREVENCIÓN DE PÉRDIDA DE FOCO EN EL DOM
         if (ubiActiva && val.datos && val.datos[0] === ubiActiva) {
             const inputCant = document.getElementById('cant_' + val.rowId);
             const inputInc = document.getElementById('incidencia_' + val.rowId);
             const tr = document.getElementById('tr_' + val.rowId);
             const btn = document.getElementById('btn_' + val.rowId);
 
-            // Actualización asincrónica directa del nodo sin re-renderizar todo el HTML
+            // Respetamos lo que el usuario está escribiendo, pero actualizamos su estado visual
             if (inputCant && document.activeElement !== inputCant) {
                 inputCant.value = val.cantidadHallada || '';
                 inputCant.disabled = val.visto;
@@ -188,7 +182,7 @@
                     btn.innerText = 'INGRESAR';
                 }
             }
-            // Fallback si la fila no existía previamente
+
             if(!document.getElementById('tr_' + val.rowId)) optimizarRender();
         }
     });
@@ -216,11 +210,14 @@
     document.getElementById('codSob').onkeydown = e => { if(e.key === 'Enter') document.getElementById('cantSob').focus(); };
     document.getElementById('cantSob').onkeydown = e => { if(e.key === 'Enter') guardarSobrante(); };
 
+    let escaneando = false;
     document.getElementById('lector').onkeydown = e => {
         if(e.key === 'Enter') {
+            if(escaneando) return; 
+            escaneando = true;
+            setTimeout(() => escaneando = false, 500); 
+
             const val = e.target.value.toUpperCase().trim();
-            
-            // Búsqueda O(1) usando el mapa de índice de memoria
             const ubiReal = mapaUbicaciones[val];
 
             if(ubiReal) {
@@ -259,10 +256,9 @@
         auditor = inputNombre;
         document.getElementById('modalPersona').style.display = 'none';
         
-        // 4. OPTIMIZACIÓN DE LÓGICA DE CONCURRENCIA (BLOQUEOS Y DESCONEXIONES)
         const refBloqueo = db.ref(`inventario_actual/bloqueos/${ubiActiva}`);
         refBloqueo.set(auditor);
-        refBloqueo.onDisconnect().remove(); // Asegura la liberación automática de DB si cae internet o cierran el navegador
+        refBloqueo.onDisconnect().remove();
         
         renderUbi();
     }
@@ -272,7 +268,7 @@
             if (ubiActiva) {
                 const refBloqueo = db.ref(`inventario_actual/bloqueos/${ubiActiva}`);
                 refBloqueo.remove();
-                refBloqueo.onDisconnect().cancel(); // Cancela la orden al cerrar correctamente
+                refBloqueo.onDisconnect().cancel();
             }
             ubiActiva = "";
             auditor = "";
@@ -283,7 +279,6 @@
 
     function renderUbi() {
         const area = document.getElementById('listaArea');
-        // Actualizado para trabajar sobre Diccionario
         const items = Object.values(dbLocal).filter(i => i && i.datos && i.datos[0] === ubiActiva);
         const sobrantesUbi = dbSobrantes.filter(s => s.ubicacion === ubiActiva);
 
@@ -301,7 +296,6 @@
                     <tbody>
         `;
         
-        // Añadido IDs únicos al tr, input y boton para actualización parcial del DOM (Prevención foco)
         items.forEach(i => {
             html += `
                 <tr id="tr_${i.rowId}" class="${i.visto ? 'visto-row' : ''}">
@@ -341,17 +335,6 @@
         `;
 
         area.innerHTML = html;
-
-        if (enfocarSiguiente) {
-            setTimeout(() => {
-                const inputsLibres = document.querySelectorAll('.input-cantidad:not([disabled])');
-                if(inputsLibres.length > 0) {
-                    inputsLibres[0].focus();
-                    inputsLibres[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-            }, 100);
-            enfocarSiguiente = false;
-        }
     }
 
     function abrirModalSobrante() {
@@ -390,29 +373,49 @@
     }
 
     function marcar(id) {
-        // Adaptado a la búsqueda por Object.values u obtención directa si es key de diccionario
         const item = Object.values(dbLocal).find(i => i.rowId == id) || dbLocal[id];
-        
+        if(!item) return;
+
         if(item.visto && item.auditor !== auditor) {
             vibrar('error');
             return alert("Marcado por: " + item.auditor);
         }
         
+        const cantElement = document.getElementById('cant_' + id);
+        
         if (!item.visto) {
-            const cantInput = document.getElementById('cant_' + id).value.trim();
+            const cantInput = cantElement.value.trim();
             if(cantInput === "") {
                 vibrar('error');
                 return alert("Por favor, ingrese la cantidad física hallada en la ubicación.");
             }
             vibrar('exito');
+            
+            // LA CORRECCIÓN: Deshabilitamos el input INMEDIATAMENTE en el entorno local
+            // Esto permite que el siguiente salto lógico no reconozca esta celda como "activa"
+            cantElement.disabled = true;
+            
             db.ref(`inventario_actual/items/${id}`).update({ 
                 visto: true, 
                 auditor: auditor,
                 cantidadHallada: cantInput
             });
-            enfocarSiguiente = true;
+
+            // Buscamos y saltamos instantáneamente al siguiente input libre
+            setTimeout(() => {
+                const inputsLibres = document.querySelectorAll('.input-cantidad:not([disabled])');
+                if(inputsLibres.length > 0) {
+                    inputsLibres[0].focus();
+                    inputsLibres[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 50);
+
         } else {
             vibrar('exito');
+            
+            // Si el usuario "Anula", reactivamos la celda de inmediato para que pueda corregir
+            cantElement.disabled = false;
+            
             db.ref(`inventario_actual/items/${id}`).update({ 
                 visto: false, 
                 auditor: "",
@@ -426,7 +429,6 @@
     }
 
     function actualizarUI() {
-        // Actualizado para iterar Diccionario en lugar de Array anómalo
         const itemsValidos = Object.values(dbLocal).filter(i => i && i.datos);
         const ubis = [...new Set(itemsValidos.map(i => i.datos[0]))];
         const pend = ubis.filter(u => itemsValidos.filter(i => i.datos[0]===u).some(i => !i.visto)).length;
