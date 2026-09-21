@@ -93,10 +93,9 @@
     const db = firebase.database();
     
     let dbLocal = [], dbSobrantes = [], ubiActiva = "", auditor = "", bloqueosActivos = {};
-    let dbSobrantesObj = {}; // Para la paginación de Firebase
+    let dbSobrantesObj = {}; 
     let timeoutUI = null;
 
-    // BLOQUEO DE PANTALLA ACTIVA (Wake Lock API)
     let wakeLock = null;
     const solicitarWakeLock = async () => {
         try {
@@ -111,7 +110,6 @@
     });
     solicitarWakeLock();
 
-    // VIBRACIÓN HÁPTICA
     function vibrar(tipo) {
         if ("vibrate" in navigator) {
             if (tipo === 'exito') navigator.vibrate(50); 
@@ -119,7 +117,6 @@
         }
     }
 
-    // MOTOR DE RENDERIZADO OPTIMIZADO
     function optimizarRender() {
         clearTimeout(timeoutUI);
         timeoutUI = setTimeout(() => {
@@ -128,7 +125,6 @@
         }, 100);
     }
 
-    // LECTURA OPTIMIZADA DE FIREBASE (Paginación de Nodos para ahorrar datos)
     db.ref('inventario_actual/items').on('child_added', snap => { dbLocal[snap.key] = snap.val(); optimizarRender(); });
     db.ref('inventario_actual/items').on('child_changed', snap => { dbLocal[snap.key] = snap.val(); optimizarRender(); });
     db.ref('inventario_actual/items').on('child_removed', snap => { delete dbLocal[snap.key]; optimizarRender(); });
@@ -146,7 +142,6 @@
     db.ref('inventario_actual/bloqueos').on('child_changed', snap => { bloqueosActivos[snap.key] = snap.val(); });
     db.ref('inventario_actual/bloqueos').on('child_removed', snap => { delete bloqueosActivos[snap.key]; });
 
-    // EVENTOS DE TECLADO
     document.getElementById('nombreAuditor').onkeydown = e => { if(e.key === 'Enter') iniciar(); };
     document.getElementById('codSob').onkeydown = e => { if(e.key === 'Enter') document.getElementById('cantSob').focus(); };
     document.getElementById('cantSob').onkeydown = e => { if(e.key === 'Enter') guardarSobrante(); };
@@ -154,12 +149,27 @@
     document.getElementById('lector').onkeydown = e => {
         if(e.key === 'Enter') {
             const val = e.target.value.toUpperCase().trim();
-            if(dbLocal.some(i => i && i.datos && i.datos[0] === val)) {
+            
+            // Función interna para crear el alias desde la ubicación larga (ej: 01-30-026-05 -> 26.05)
+            const generarAlias = (ubi) => {
+                const partes = ubi.split('-');
+                if (partes.length === 4) {
+                    const numeroLote = partes[2].length === 3 ? partes[2].substring(1) : partes[2];
+                    return numeroLote + "." + partes[3];
+                }
+                return ubi;
+            };
+
+            // Busca validando el nombre completo o el alias corto
+            const itemEncontrado = dbLocal.find(i => i && i.datos && (i.datos[0] === val || generarAlias(i.datos[0]) === val));
+
+            if(itemEncontrado) {
+                const ubiReal = itemEncontrado.datos[0]; // Captura el formato original largo (01-30-026-05)
                 
-                if (bloqueosActivos[val]) {
+                if (bloqueosActivos[ubiReal]) {
                     vibrar('error');
-                    const ocupadoPor = bloqueosActivos[val];
-                    const confirmar = confirm(`⚠️ ALERTA DE COLISIÓN ⚠️\n\nEl pallet ${val} ya está siendo auditado por: ${ocupadoPor}.\n\n¿Desea forzar la entrada y tomar el control del pallet de todas formas?`);
+                    const ocupadoPor = bloqueosActivos[ubiReal];
+                    const confirmar = confirm(`⚠️ ALERTA DE COLISIÓN ⚠️\n\nEl pallet ${ubiReal} ya está siendo auditado por: ${ocupadoPor}.\n\n¿Desea forzar la entrada y tomar el control del pallet de todas formas?`);
                     if (!confirmar) {
                         e.target.value = '';
                         return; 
@@ -167,9 +177,9 @@
                 }
 
                 vibrar('exito');
-                ubiActiva = val;
+                ubiActiva = ubiReal;
                 auditor = ""; 
-                document.getElementById('ubiSpan').innerText = val;
+                document.getElementById('ubiSpan').innerText = ubiReal;
                 document.getElementById('nombreAuditor').value = ""; 
                 document.getElementById('modalPersona').style.display = 'flex';
                 setTimeout(() => document.getElementById('nombreAuditor').focus(), 150);

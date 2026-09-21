@@ -73,14 +73,13 @@
         <div class="card"><h3 id="statExtras" style="color:#eab308">0</h3><small>CÓDIGOS SOBRANTES</small></div>
     </div>
 
-    <!-- USABILIDAD: Controles de Búsqueda y Filtros Rápidos -->
     <div class="controles-area">
         <div class="filtros-rapidos">
             <button class="btn-filtro activo" id="btnFiltroAll" onclick="setFiltro('all')">📋 Mostrar Todo</button>
             <button class="btn-filtro" id="btnFiltroPend" onclick="setFiltro('pendientes')">🔴 Solo Pendientes</button>
             <button class="btn-filtro" id="btnFiltroDif" onclick="setFiltro('diferencias')">⚠️ Top Diferencias</button>
+            <button class="btn-filtro" id="btnFiltroCuadrados" onclick="setFiltro('cuadrados')">✅ Códigos Cuadrados</button>
         </div>
-        <!-- RENDERIZADO: onkeyup ahora usa Debounce -->
         <input type="text" id="searchInput" class="search-input" placeholder="🔍 Buscar por código, ubicación o incidencia..." onkeyup="debounceBusqueda()">
     </div>
 
@@ -93,7 +92,6 @@
         </table>
     </div>
 
-    <!-- RENDERIZADO: Paginación para no congelar la pantalla -->
     <div class="paginacion">
         <button class="btn-pag" id="btnPrev" onclick="cambiarPagina(-1)">◀ Anterior</button>
         <span id="pageInfo" style="font-weight: bold; color: #94a3b8;">Página 1 de 1</span>
@@ -118,7 +116,6 @@
     let dataLocalObj = {}, dataSobrantesObj = {};
     let timeoutAdmin = null, debounceTimer = null;
 
-    // Variables de Paginación y Filtros
     let paginaActual = 1;
     const itemsPorPagina = 100;
     let filtroActivo = 'all';
@@ -134,7 +131,6 @@
         } else { alert("Credenciales incorrectas"); }
     }
 
-    // RED Y BASE DE DATOS: LECTURA DINÁMICA POR ENCABEZADOS Y CARGA POR LOTES
     document.getElementById('fileInput').onchange = e => {
         const file = e.target.files[0];
         if (!file) return;
@@ -143,10 +139,8 @@
             const data = new Uint8Array(ev.target.result);
             const wb = XLSX.read(data, {type: 'array'});
             
-            // Convertimos la hoja a JSON utilizando la primera fila como nombres de objetos
             const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
             
-            // Filtramos y mapeamos usando los nombres exactos de tus encabezados
             const items = raw.filter(r => r["Variante"] != null && String(r["Variante"]).trim() !== "").map((r, i) => ({
                 datos: [
                     String(r["Ubicación"] || 'S/U').trim(), 
@@ -156,14 +150,12 @@
                 visto: false, auditor: "", incidencia: "", cantidadHallada: null, rowId: i
             }));
 
-            // Validación de seguridad por si el excel subido no tiene el formato correcto
             if(items.length === 0) {
                 alert("❌ Error: No se encontraron datos o los encabezados no coinciden.\nPor favor, verifique que el Excel contenga las columnas exactas: 'Variante', 'Ubicación' y 'Physical Quantity'.");
                 document.getElementById('fileInput').value = "";
                 return;
             }
 
-            // Borramos la base actual y subimos la nueva en lotes (chunks) de 500 filas
             db.ref('inventario_actual').remove().then(async () => {
                 const tamañoLote = 500;
                 for (let i = 0; i < items.length; i += tamañoLote) {
@@ -224,6 +216,7 @@
         if(tipo==='all') document.getElementById('btnFiltroAll').classList.add('activo');
         if(tipo==='pendientes') document.getElementById('btnFiltroPend').classList.add('activo');
         if(tipo==='diferencias') document.getElementById('btnFiltroDif').classList.add('activo');
+        if(tipo==='cuadrados') document.getElementById('btnFiltroCuadrados').classList.add('activo');
         
         paginaActual = 1;
         filtrarYMostrar();
@@ -243,6 +236,12 @@
                 let cFis = i.cantidadHallada !== undefined && i.cantidadHallada !== null ? i.cantidadHallada : "";
                 return Number(cFis) !== Number(i.datos[2]);
             });
+        } else if (filtroActivo === 'cuadrados') {
+            itemsBase = itemsBase.filter(i => {
+                if (!i.visto) return false;
+                let cFis = i.cantidadHallada !== undefined && i.cantidadHallada !== null ? i.cantidadHallada : "";
+                return Number(cFis) === Number(i.datos[2]);
+            });
         }
 
         if (term) {
@@ -258,7 +257,7 @@
         itemsBase = itemsBase.map(i => ({...i, tipo: 'base'}));
         matrizFiltrada.push(...itemsBase);
 
-        if (filtroActivo !== 'pendientes') {
+        if (filtroActivo !== 'pendientes' && filtroActivo !== 'cuadrados') {
             let itemsSob = dataSobrantes;
             if (term) {
                 itemsSob = itemsSob.filter(s => 
