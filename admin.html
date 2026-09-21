@@ -15,22 +15,32 @@
         #adminContent { display: none; }
         .admin-container { max-width: 1250px; margin: 0 auto; }
         .header { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 20px; border-radius: 12px; margin-bottom: 20px; border: 1px solid #334155; }
-        .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px; }
+        .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 15px; margin-bottom: 20px; }
         .card { background: #1e293b; padding: 15px; border-radius: 10px; border-bottom: 4px solid #3b82f6; text-align: center; }
         .btn { padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; border: none; color: white; margin-left: 5px; }
         .btn-upload { background: #3b82f6; }
         .btn-download { background: #10b981; }
         .btn-reset { background: #ef4444; }
         
-        .search-container { margin-bottom: 15px; }
-        .search-input { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #334155; background: #1e293b; color: white; font-size: 1rem; outline: none; box-sizing: border-box; }
-
-        .table-area { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; max-height: 60vh; overflow-y: auto; }
+        /* Controles de Filtros y Búsqueda */
+        .controles-area { margin-bottom: 15px; background: #1e293b; padding: 15px; border-radius: 12px; border: 1px solid #334155; }
+        .filtros-rapidos { display: flex; gap: 10px; margin-bottom: 15px; }
+        .btn-filtro { flex: 1; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; border: 1px solid #334155; background: #0f172a; color: #94a3b8; transition: 0.3s; }
+        .btn-filtro.activo { background: #3b82f6; color: white; border-color: #3b82f6; }
+        .search-input { width: 100%; padding: 15px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: white; font-size: 1rem; outline: none; box-sizing: border-box; }
+        
+        /* Tabla y Paginación */
+        .table-area { background: #1e293b; border-radius: 12px; overflow: hidden; border: 1px solid #334155; max-height: 55vh; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; }
-        th { background: #334155; color: #3b82f6; padding: 15px; text-align: left; position: sticky; top: 0; }
+        th { background: #334155; color: #3b82f6; padding: 15px; text-align: left; position: sticky; top: 0; z-index: 10; box-shadow: 0 2px 5px rgba(0,0,0,0.2); }
         td { padding: 12px; border-bottom: 1px solid #334155; }
         .visto { background: #064e3b !important; }
+        .fila-extra { background: #422006 !important; border-left: 4px solid #eab308; }
         .incidencia-text { color: #fcd34d; font-style: italic; font-size: 0.9em; }
+        
+        .paginacion { display: flex; justify-content: space-between; align-items: center; padding: 15px; background: #1e293b; border-radius: 12px; margin-top: 15px; border: 1px solid #334155; }
+        .btn-pag { padding: 8px 15px; border-radius: 6px; background: #334155; color: white; border: none; cursor: pointer; font-weight: bold; }
+        .btn-pag:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -51,7 +61,7 @@
             <input type="file" id="fileInput" accept=".xlsx" style="display:none">
             <button class="btn btn-upload" onclick="document.getElementById('fileInput').click()">📂 Cargar ubicaciones</button>
             <button class="btn btn-download" onclick="descargarExcel()">📥 Descargar Reporte</button>
-            <button class="btn btn-reset" onclick="limpiarSistema()">🗑️ Borrar datos</button>
+            <button class="btn btn-reset" onclick="reiniciarSistema()">🔄 Reiniciar Sistema</button>
         </div>
     </div>
 
@@ -60,19 +70,34 @@
         <div class="card"><h3 id="statUbis">0</h3><small>UBICACIONES</small></div>
         <div class="card"><h3 id="statVistos">0</h3><small>VISTOS (códigos)</small></div>
         <div class="card"><h3 id="statPend" style="color:#ef4444">0</h3><small>PENDIENTES</small></div>
+        <div class="card"><h3 id="statExtras" style="color:#eab308">0</h3><small>CÓDIGOS SOBRANTES</small></div>
     </div>
 
-    <div class="search-container">
-        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Buscar por código, ubicación o incidencia..." onkeyup="filtrarYMostrar()">
+    <!-- USABILIDAD: Controles de Búsqueda y Filtros Rápidos -->
+    <div class="controles-area">
+        <div class="filtros-rapidos">
+            <button class="btn-filtro activo" id="btnFiltroAll" onclick="setFiltro('all')">📋 Mostrar Todo</button>
+            <button class="btn-filtro" id="btnFiltroPend" onclick="setFiltro('pendientes')">🔴 Solo Pendientes</button>
+            <button class="btn-filtro" id="btnFiltroDif" onclick="setFiltro('diferencias')">⚠️ Top Diferencias</button>
+        </div>
+        <!-- RENDERIZADO: onkeyup ahora usa Debounce -->
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Buscar por código, ubicación o incidencia..." onkeyup="debounceBusqueda()">
     </div>
 
-    <div class="table-area">
+    <div class="table-area" id="tableContainer">
         <table>
             <thead>
-                <tr><th>UBICACIÓN</th><th>CÓDIGO</th><th>CANTIDAD</th><th>ESTADO</th><th>RESPONSABLE</th><th>INCIDENCIAS</th></tr>
+                <tr><th>UBICACIÓN</th><th>CÓDIGO</th><th>CANT SISTEMA</th><th>CANT FÍSICA</th><th>RESPONSABLE</th><th>INCIDENCIAS</th></tr>
             </thead>
             <tbody id="tbody"></tbody>
         </table>
+    </div>
+
+    <!-- RENDERIZADO: Paginación para no congelar la pantalla -->
+    <div class="paginacion">
+        <button class="btn-pag" id="btnPrev" onclick="cambiarPagina(-1)">◀ Anterior</button>
+        <span id="pageInfo" style="font-weight: bold; color: #94a3b8;">Página 1 de 1</span>
+        <button class="btn-pag" id="btnNext" onclick="cambiarPagina(1)">Siguiente ▶</button>
     </div>
 </div>
 
@@ -89,9 +114,16 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
-    let dataLocal = [];
+    let dataLocal = [], dataSobrantes = [];
+    let dataLocalObj = {}, dataSobrantesObj = {};
+    let timeoutAdmin = null, debounceTimer = null;
 
-    // Lógica corregida: Enter en Usuario baja a Clave, Enter en Clave valida acceso
+    // Variables de Paginación y Filtros
+    let paginaActual = 1;
+    const itemsPorPagina = 100;
+    let filtroActivo = 'all';
+    let matrizFiltrada = [];
+
     document.getElementById('user').onkeydown = e => { if(e.key === 'Enter') document.getElementById('pass').focus(); };
     document.getElementById('pass').onkeydown = e => { if(e.key === 'Enter') validarAcceso(); };
 
@@ -102,6 +134,7 @@
         } else { alert("Credenciales incorrectas"); }
     }
 
+    // RED Y BASE DE DATOS: LECTURA DINÁMICA POR ENCABEZADOS Y CARGA POR LOTES
     document.getElementById('fileInput').onchange = e => {
         const file = e.target.files[0];
         if (!file) return;
@@ -109,86 +142,247 @@
         reader.onload = ev => {
             const data = new Uint8Array(ev.target.result);
             const wb = XLSX.read(data, {type: 'array'});
-            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header: 1});
-            const items = raw.slice(1).filter(r => r[1]).map((r, i) => ({
-                datos: [String(r[3]||'S/U').trim(), String(r[1]||'S/C').trim(), r[5]||0],
-                visto: false, auditor: "", incidencia: "", rowId: i
+            
+            // Convertimos la hoja a JSON utilizando la primera fila como nombres de objetos
+            const raw = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+            
+            // Filtramos y mapeamos usando los nombres exactos de tus encabezados
+            const items = raw.filter(r => r["Variante"] != null && String(r["Variante"]).trim() !== "").map((r, i) => ({
+                datos: [
+                    String(r["Ubicación"] || 'S/U').trim(), 
+                    String(r["Variante"] || 'S/C').trim(), 
+                    r["Physical Quantity"] !== undefined ? Number(r["Physical Quantity"]) : 0
+                ],
+                visto: false, auditor: "", incidencia: "", cantidadHallada: null, rowId: i
             }));
 
-            db.ref('inventario_actual').set({ items }).then(() => {
-                alert("✅ Inventario cargado correctamente");
+            // Validación de seguridad por si el excel subido no tiene el formato correcto
+            if(items.length === 0) {
+                alert("❌ Error: No se encontraron datos o los encabezados no coinciden.\nPor favor, verifique que el Excel contenga las columnas exactas: 'Variante', 'Ubicación' y 'Physical Quantity'.");
+                document.getElementById('fileInput').value = "";
+                return;
+            }
+
+            // Borramos la base actual y subimos la nueva en lotes (chunks) de 500 filas
+            db.ref('inventario_actual').remove().then(async () => {
+                const tamañoLote = 500;
+                for (let i = 0; i < items.length; i += tamañoLote) {
+                    const lote = items.slice(i, i + tamañoLote);
+                    let updates = {};
+                    lote.forEach(item => { updates[item.rowId] = item; });
+                    await db.ref('inventario_actual/items').update(updates);
+                }
+                alert(`✅ Nuevo inventario cargado exitosamente. Se leyeron ${items.length} códigos.`);
                 document.getElementById('fileInput').value = "";
             });
         };
         reader.readAsArrayBuffer(file);
     };
 
-    db.ref('inventario_actual/items').on('value', snap => {
-        dataLocal = snap.val() || [];
-        filtrarYMostrar();
-    });
-
-    function filtrarYMostrar() {
-        const term = document.getElementById('searchInput').value.toLowerCase();
-        let itemsFiltrados = dataLocal.filter(i => 
-            i.datos[1].toLowerCase().includes(term) || 
-            i.datos[0].toLowerCase().includes(term) ||
-            (i.incidencia && i.incidencia.toLowerCase().includes(term))
-        );
-        itemsFiltrados.sort((a, b) => (a.visto === b.visto) ? 0 : a.visto ? 1 : -1);
-        actualizarUI(itemsFiltrados);
+    function optimizarRenderAdmin() {
+        clearTimeout(timeoutAdmin);
+        timeoutAdmin = setTimeout(() => {
+            dataLocal = Object.values(dataLocalObj);
+            dataSobrantes = Object.values(dataSobrantesObj);
+            calcularEstadisticas(); 
+            filtrarYMostrar();
+        }, 150);
     }
 
-    function actualizarUI(items) {
-        const totalItems = dataLocal.length;
-        const vistos = dataLocal.filter(i => i.visto).length;
-        const todasUbis = [...new Set(dataLocal.map(i => i.datos[0]))];
-        const ubisPend = todasUbis.filter(u => dataLocal.filter(i => i.datos[0] === u).some(i => !i.visto)).length;
+    db.ref('inventario_actual/items').on('child_added', snap => { dataLocalObj[snap.key] = snap.val(); optimizarRenderAdmin(); });
+    db.ref('inventario_actual/items').on('child_changed', snap => { dataLocalObj[snap.key] = snap.val(); optimizarRenderAdmin(); });
+    db.ref('inventario_actual/items').on('child_removed', snap => { delete dataLocalObj[snap.key]; optimizarRenderAdmin(); });
+
+    db.ref('inventario_actual/sobrantes').on('child_added', snap => { dataSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; optimizarRenderAdmin(); });
+    db.ref('inventario_actual/sobrantes').on('child_changed', snap => { dataSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; optimizarRenderAdmin(); });
+    db.ref('inventario_actual/sobrantes').on('child_removed', snap => { delete dataSobrantesObj[snap.key]; optimizarRenderAdmin(); });
+
+    function calcularEstadisticas() {
+        const totalItems = dataLocal.filter(i => i && i.datos).length;
+        const vistos = dataLocal.filter(i => i && i.datos && i.visto).length;
+        const todasUbis = [...new Set(dataLocal.filter(i => i && i.datos).map(i => i.datos[0]))];
+        const ubisPend = todasUbis.filter(u => dataLocal.filter(i => i && i.datos && i.datos[0] === u).some(i => !i.visto)).length;
 
         document.getElementById('statProgreso').innerText = totalItems ? Math.round((vistos/totalItems)*100) + '%' : '0%';
         document.getElementById('statUbis').innerText = todasUbis.length;
         document.getElementById('statVistos').innerText = vistos;
         document.getElementById('statPend').innerText = ubisPend;
+        document.getElementById('statExtras').innerText = dataSobrantes.length;
+    }
 
-        document.getElementById('tbody').innerHTML = items.map(i => `
-            <tr class="${i.visto ? 'visto' : ''}">
-                <td><b>${i.datos[0]}</b></td>
-                <td>${i.datos[1]}</td>
-                <td>${i.datos[2]}</td>
-                <td>${i.visto ? '✅' : '⏳'}</td>
-                <td>${i.auditor || '-'}</td>
-                <td class="incidencia-text">${i.incidencia || '-'}</td>
-            </tr>
-        `).join('');
+    function debounceBusqueda() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            paginaActual = 1;
+            filtrarYMostrar();
+        }, 300);
+    }
+
+    function setFiltro(tipo) {
+        filtroActivo = tipo;
+        document.querySelectorAll('.btn-filtro').forEach(b => b.classList.remove('activo'));
+        if(tipo==='all') document.getElementById('btnFiltroAll').classList.add('activo');
+        if(tipo==='pendientes') document.getElementById('btnFiltroPend').classList.add('activo');
+        if(tipo==='diferencias') document.getElementById('btnFiltroDif').classList.add('activo');
+        
+        paginaActual = 1;
+        filtrarYMostrar();
+    }
+
+    function filtrarYMostrar() {
+        const term = document.getElementById('searchInput').value.toLowerCase();
+        matrizFiltrada = [];
+
+        let itemsBase = dataLocal.filter(i => i && i.datos);
+        
+        if (filtroActivo === 'pendientes') {
+            itemsBase = itemsBase.filter(i => !i.visto);
+        } else if (filtroActivo === 'diferencias') {
+            itemsBase = itemsBase.filter(i => {
+                if (!i.visto) return false;
+                let cFis = i.cantidadHallada !== undefined && i.cantidadHallada !== null ? i.cantidadHallada : "";
+                return Number(cFis) !== Number(i.datos[2]);
+            });
+        }
+
+        if (term) {
+            itemsBase = itemsBase.filter(i => 
+                i.datos[1].toLowerCase().includes(term) || 
+                i.datos[0].toLowerCase().includes(term) ||
+                (i.incidencia && i.incidencia.toLowerCase().includes(term))
+            );
+        }
+        
+        itemsBase.sort((a, b) => (a.visto === b.visto) ? 0 : a.visto ? 1 : -1);
+        
+        itemsBase = itemsBase.map(i => ({...i, tipo: 'base'}));
+        matrizFiltrada.push(...itemsBase);
+
+        if (filtroActivo !== 'pendientes') {
+            let itemsSob = dataSobrantes;
+            if (term) {
+                itemsSob = itemsSob.filter(s => 
+                    s.codigo.toLowerCase().includes(term) || 
+                    s.ubicacion.toLowerCase().includes(term)
+                );
+            }
+            itemsSob = itemsSob.map(s => ({...s, tipo: 'sobrante'}));
+            matrizFiltrada.push(...itemsSob);
+        }
+
+        renderPagina();
+    }
+
+    function renderPagina() {
+        const totalPaginas = Math.ceil(matrizFiltrada.length / itemsPorPagina) || 1;
+        if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+        
+        const inicio = (paginaActual - 1) * itemsPorPagina;
+        const fin = inicio + itemsPorPagina;
+        const elementosPagina = matrizFiltrada.slice(inicio, fin);
+
+        let html = '';
+        elementosPagina.forEach(item => {
+            if (item.tipo === 'base') {
+                html += `
+                    <tr class="${item.visto ? 'visto' : ''}">
+                        <td><b>${item.datos[0]}</b></td>
+                        <td>${item.datos[1]}</td>
+                        <td>${item.datos[2]}</td>
+                        <td>${item.visto ? '✅ ' + (item.cantidadHallada !== undefined && item.cantidadHallada !== null ? item.cantidadHallada : '') : '⏳'}</td>
+                        <td>${item.auditor || '-'}</td>
+                        <td class="incidencia-text">${item.incidencia || '-'}</td>
+                    </tr>
+                `;
+            } else if (item.tipo === 'sobrante') {
+                html += `
+                    <tr class="fila-extra">
+                        <td><b>${item.ubicacion}</b></td>
+                        <td>${item.codigo} <span style="background:#eab308;color:#000;padding:2px 4px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:5px;">SOBRANTE</span></td>
+                        <td>0</td>
+                        <td>✅ ${item.cantidad}</td>
+                        <td>${item.auditor || '-'}</td>
+                        <td class="incidencia-text">FUERA DE STOCK</td>
+                    </tr>
+                `;
+            }
+        });
+
+        document.getElementById('tbody').innerHTML = html;
+        document.getElementById('tableContainer').scrollTop = 0;
+
+        document.getElementById('pageInfo').innerText = `Página ${paginaActual} de ${totalPaginas} (${matrizFiltrada.length} resultados)`;
+        document.getElementById('btnPrev').disabled = paginaActual === 1;
+        document.getElementById('btnNext').disabled = paginaActual === totalPaginas;
+    }
+
+    function cambiarPagina(dir) {
+        paginaActual += dir;
+        renderPagina();
     }
 
     function descargarExcel() {
-        if (dataLocal.length === 0) return alert("No hay datos para descargar");
-        const rows = dataLocal.map(i => ({
-            UBICACIÓN: i.datos[0],
-            CÓDIGO: i.datos[1],
-            CANTIDAD: i.datos[2],
-            ESTADO: i.visto ? "COMPLETADO" : "PENDIENTE",
-            RESPONSABLE: i.auditor || "",
-            INCIDENCIAS: i.incidencia || ""
+        if (dataLocal.length === 0 && dataSobrantes.length === 0) return alert("No hay datos para descargar");
+        
+        let rows = dataLocal.filter(i => i && i.datos).map(i => {
+            let cantFisica = i.visto ? (i.cantidadHallada !== undefined && i.cantidadHallada !== null ? i.cantidadHallada : "") : "PENDIENTE";
+            let diferenciaCalculada = (i.visto && cantFisica !== "") ? (Number(cantFisica) - Number(i.datos[2])) : "";
+
+            return {
+                UBICACIÓN: i.datos[0],
+                CÓDIGO: i.datos[1],
+                "CANTIDAD SISTEMA": i.datos[2],
+                "CANTIDAD FÍSICA": cantFisica === "" ? "COMPLETADO" : cantFisica,
+                "DIFERENCIA": diferenciaCalculada,
+                ESTADO: i.visto ? "COMPLETADO" : "PENDIENTE",
+                RESPONSABLE: i.auditor || "",
+                INCIDENCIAS: i.incidencia || ""
+            };
+        });
+
+        let rowsSob = dataSobrantes.map(s => ({
+            UBICACIÓN: s.ubicacion,
+            CÓDIGO: s.codigo,
+            "CANTIDAD SISTEMA": 0,
+            "CANTIDAD FÍSICA": s.cantidad,
+            "DIFERENCIA": Number(s.cantidad),
+            ESTADO: "SOBRANTE / FUERA DE STOCK",
+            RESPONSABLE: s.auditor || "",
+            INCIDENCIAS: "FUERA DE STOCK"
         }));
-        const ws = XLSX.utils.json_to_sheet(rows);
+
+        const ws = XLSX.utils.json_to_sheet(rows.concat(rowsSob));
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Reporte");
-        XLSX.writeFile(wb, `Reporte_Final_${new Date().toISOString().slice(0,10)}.xlsx`);
+        XLSX.writeFile(wb, `Reporte_Final_Inventario_${new Date().toISOString().slice(0,10)}.xlsx`);
     }
 
-    function limpiarSistema() {
-        if(confirm("⚠️ Se borrará toda la información.")) {
-            db.ref('inventario_actual').remove();
+    function reiniciarSistema() {
+        if(confirm("⚠️ ¿Seguro que desea REINICIAR el inventario?\n\nEsto borrará todo el avance, incidencias y sobrantes de los operadores.")) {
+            
+            db.ref('inventario_actual/sobrantes').remove();
+            db.ref('inventario_actual/bloqueos').remove();
+            
+            const resetItems = dataLocal.filter(i => i && i.rowId !== undefined);
+            const tamañoLote = 500;
+            
+            (async function resetLotes() {
+                for (let i = 0; i < resetItems.length; i += tamañoLote) {
+                    const lote = resetItems.slice(i, i + tamañoLote);
+                    let updates = {};
+                    lote.forEach(item => {
+                        updates[item.rowId] = { ...item, visto: false, auditor: "", incidencia: "", cantidadHallada: null };
+                    });
+                    await db.ref('inventario_actual/items').update(updates);
+                }
+                alert("🔄 Sistema reiniciado con éxito. Listo para empezar el nuevo conteo.");
+            })();
         }
     }
 
     document.addEventListener('contextmenu', event => event.preventDefault());
     document.onkeydown = function(e) {
-        if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74)) || (e.ctrlKey && (e.keyCode == 85 || e.keyCode == 83))) {
-            return false;
-        }
+        if (e.keyCode == 123 || (e.ctrlKey && e.shiftKey && (e.keyCode == 73 || e.keyCode == 74)) || (e.ctrlKey && (e.keyCode == 85 || e.keyCode == 83))) return false;
     };
 </script>
 </body>
