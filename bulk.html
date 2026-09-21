@@ -92,10 +92,14 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
     
-    let dbLocal = [], dbSobrantes = [], ubiActiva = "", auditor = "", bloqueosActivos = {};
+    // 1. REESTRUCTURACIÓN DE MEMORIA
+    let dbLocal = {}; // Convertido a Diccionario (Objeto)
+    let mapaUbicaciones = {}; // Índice O(1) para búsqueda rápida
+    
+    let dbSobrantes = [], ubiActiva = "", auditor = "", bloqueosActivos = {};
     let dbSobrantesObj = {}; 
     let timeoutUI = null;
-    let enfocarSiguiente = false; // Bandera para el auto-foco
+    let enfocarSiguiente = false; 
 
     let wakeLock = null;
     const solicitarWakeLock = async () => {
@@ -118,6 +122,7 @@
         }
     }
 
+    // 2. OPTIMIZACIÓN DE RENDER Y LECTURA
     function optimizarRender() {
         clearTimeout(timeoutUI);
         timeoutUI = setTimeout(() => {
@@ -126,9 +131,73 @@
         }, 100);
     }
 
-    db.ref('inventario_actual/items').on('child_added', snap => { dbLocal[snap.key] = snap.val(); optimizarRender(); });
-    db.ref('inventario_actual/items').on('child_changed', snap => { dbLocal[snap.key] = snap.val(); optimizarRender(); });
-    db.ref('inventario_actual/items').on('child_removed', snap => { delete dbLocal[snap.key]; optimizarRender(); });
+    const generarAlias = (ubi) => {
+        const partes = ubi.split('-');
+        if (partes.length === 4) {
+            const numeroLote = partes[2].length === 3 ? partes[2].substring(1) : partes[2];
+            return numeroLote + "." + partes[3];
+        }
+        return ubi;
+    };
+
+    db.ref('inventario_actual/items').on('child_added', snap => { 
+        const val = snap.val();
+        dbLocal[snap.key] = val; 
+        
+        if (val && val.datos && val.datos[0]) {
+            mapaUbicaciones[val.datos[0]] = val.datos[0];
+            mapaUbicaciones[generarAlias(val.datos[0])] = val.datos[0];
+        }
+
+        actualizarUI(); 
+        
+        // Aisla el renderizado visual solo si el item pertenece a la ubi activa
+        if(ubiActiva && val.datos && val.datos[0] === ubiActiva) optimizarRender();
+    });
+
+    db.ref('inventario_actual/items').on('child_changed', snap => { 
+        const val = snap.val();
+        dbLocal[snap.key] = val; 
+        actualizarUI(); 
+
+        // 3. PREVENCIÓN DE PÉRDIDA DE FOCO EN EL DOM
+        if (ubiActiva && val.datos && val.datos[0] === ubiActiva) {
+            const inputCant = document.getElementById('cant_' + val.rowId);
+            const inputInc = document.getElementById('incidencia_' + val.rowId);
+            const tr = document.getElementById('tr_' + val.rowId);
+            const btn = document.getElementById('btn_' + val.rowId);
+
+            // Actualización asincrónica directa del nodo sin re-renderizar todo el HTML
+            if (inputCant && document.activeElement !== inputCant) {
+                inputCant.value = val.cantidadHallada || '';
+                inputCant.disabled = val.visto;
+            }
+            if (inputInc && document.activeElement !== inputInc) {
+                inputInc.value = val.incidencia || '';
+            }
+            if (tr) {
+                if (val.visto) tr.classList.add('visto-row');
+                else tr.classList.remove('visto-row');
+            }
+            if (btn) {
+                if (val.visto) {
+                    btn.classList.add('btn-anular');
+                    btn.innerText = 'ANULAR';
+                } else {
+                    btn.classList.remove('btn-anular');
+                    btn.innerText = 'INGRESAR';
+                }
+            }
+            // Fallback si la fila no existía previamente
+            if(!document.getElementById('tr_' + val.rowId)) optimizarRender();
+        }
+    });
+
+    db.ref('inventario_actual/items').on('child_removed', snap => { 
+        delete dbLocal[snap.key]; 
+        actualizarUI(); 
+        if(ubiActiva && snap.val().datos && snap.val().datos[0] === ubiActiva) optimizarRender();
+    });
 
     db.ref('inventario_actual/sobrantes').on('child_added', snap => { dbSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; actualizarSobrantes(); });
     db.ref('inventario_actual/sobrantes').on('child_changed', snap => { dbSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; actualizarSobrantes(); });
@@ -151,20 +220,10 @@
         if(e.key === 'Enter') {
             const val = e.target.value.toUpperCase().trim();
             
-            const generarAlias = (ubi) => {
-                const partes = ubi.split('-');
-                if (partes.length === 4) {
-                    const numeroLote = partes[2].length === 3 ? partes[2].substring(1) : partes[2];
-                    return numeroLote + "." + partes[3];
-                }
-                return ubi;
-            };
+            // Búsqueda O(1) usando el mapa de índice de memoria
+            const ubiReal = mapaUbicaciones[val];
 
-            const itemEncontrado = dbLocal.find(i => i && i.datos && (i.datos[0] === val || generarAlias(i.datos[0]) === val));
-
-            if(itemEncontrado) {
-                const ubiReal = itemEncontrado.datos[0]; 
-                
+            if(ubiReal) {
                 if (bloqueosActivos[ubiReal]) {
                     vibrar('error');
                     const ocupadoPor = bloqueosActivos[ubiReal];
@@ -199,13 +258,22 @@
         vibrar('exito');
         auditor = inputNombre;
         document.getElementById('modalPersona').style.display = 'none';
-        db.ref(`inventario_actual/bloqueos/${ubiActiva}`).set(auditor);
+        
+        // 4. OPTIMIZACIÓN DE LÓGICA DE CONCURRENCIA (BLOQUEOS Y DESCONEXIONES)
+        const refBloqueo = db.ref(`inventario_actual/bloqueos/${ubiActiva}`);
+        refBloqueo.set(auditor);
+        refBloqueo.onDisconnect().remove(); // Asegura la liberación automática de DB si cae internet o cierran el navegador
+        
         renderUbi();
     }
 
     function cerrarUbicacion() {
         if(confirm("⚠️ ¿Seguro que desea cerrar este pallet?\n\nAsegúrese de haber ingresado todas las cantidades halladas.")) {
-            if (ubiActiva) db.ref(`inventario_actual/bloqueos/${ubiActiva}`).remove();
+            if (ubiActiva) {
+                const refBloqueo = db.ref(`inventario_actual/bloqueos/${ubiActiva}`);
+                refBloqueo.remove();
+                refBloqueo.onDisconnect().cancel(); // Cancela la orden al cerrar correctamente
+            }
             ubiActiva = "";
             auditor = "";
             document.getElementById('listaArea').innerHTML = "<center><br><small style='color:gray'>Ubicación cerrada. Escanee la siguiente...</small></center>";
@@ -215,7 +283,8 @@
 
     function renderUbi() {
         const area = document.getElementById('listaArea');
-        const items = dbLocal.filter(i => i && i.datos && i.datos[0] === ubiActiva);
+        // Actualizado para trabajar sobre Diccionario
+        const items = Object.values(dbLocal).filter(i => i && i.datos && i.datos[0] === ubiActiva);
         const sobrantesUbi = dbSobrantes.filter(s => s.ubicacion === ubiActiva);
 
         let html = `
@@ -232,13 +301,14 @@
                     <tbody>
         `;
         
+        // Añadido IDs únicos al tr, input y boton para actualización parcial del DOM (Prevención foco)
         items.forEach(i => {
             html += `
-                <tr class="${i.visto ? 'visto-row' : ''}">
+                <tr id="tr_${i.rowId}" class="${i.visto ? 'visto-row' : ''}">
                     <td><b>${i.datos[1]}</b></td>
-                    <td><input type="number" id="cant_${i.rowId}" class="input-incidencia input-cantidad" placeholder="0" value="${i.cantidadHallada || ''}" ${i.visto ? 'disabled' : ''} onkeydown="if(event.key === 'Enter') marcar(${i.rowId})"></td>
-                    <td><input type="text" class="input-incidencia" placeholder="Nota..." value="${i.incidencia || ''}" onchange="guardarIncidencia(${i.rowId}, this.value)"></td>
-                    <td><button class="btn-check ${i.visto ? 'btn-anular' : ''}" onclick="marcar(${i.rowId})">${i.visto ? 'ANULAR' : 'INGRESAR'}</button></td>
+                    <td><input type="number" id="cant_${i.rowId}" class="input-incidencia input-cantidad" placeholder="0" value="${i.cantidadHallada || ''}" ${i.visto ? 'disabled' : ''} onkeydown="if(event.key === 'Enter') marcar('${i.rowId}')"></td>
+                    <td><input type="text" id="incidencia_${i.rowId}" class="input-incidencia" placeholder="Nota..." value="${i.incidencia || ''}" onchange="guardarIncidencia('${i.rowId}', this.value)"></td>
+                    <td><button id="btn_${i.rowId}" class="btn-check ${i.visto ? 'btn-anular' : ''}" onclick="marcar('${i.rowId}')">${i.visto ? 'ANULAR' : 'INGRESAR'}</button></td>
                 </tr>
             `;
         });
@@ -320,7 +390,9 @@
     }
 
     function marcar(id) {
-        const item = dbLocal[id];
+        // Adaptado a la búsqueda por Object.values u obtención directa si es key de diccionario
+        const item = Object.values(dbLocal).find(i => i.rowId == id) || dbLocal[id];
+        
         if(item.visto && item.auditor !== auditor) {
             vibrar('error');
             return alert("Marcado por: " + item.auditor);
@@ -354,7 +426,8 @@
     }
 
     function actualizarUI() {
-        const itemsValidos = dbLocal.filter(i => i && i.datos);
+        // Actualizado para iterar Diccionario en lugar de Array anómalo
+        const itemsValidos = Object.values(dbLocal).filter(i => i && i.datos);
         const ubis = [...new Set(itemsValidos.map(i => i.datos[0]))];
         const pend = ubis.filter(u => itemsValidos.filter(i => i.datos[0]===u).some(i => !i.visto)).length;
         document.getElementById('countUbis').innerText = ubis.length;
