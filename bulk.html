@@ -95,6 +95,7 @@
     let dbLocal = [], dbSobrantes = [], ubiActiva = "", auditor = "", bloqueosActivos = {};
     let dbSobrantesObj = {}; 
     let timeoutUI = null;
+    let enfocarSiguiente = false; // Bandera para el auto-foco
 
     let wakeLock = null;
     const solicitarWakeLock = async () => {
@@ -150,7 +151,6 @@
         if(e.key === 'Enter') {
             const val = e.target.value.toUpperCase().trim();
             
-            // Función interna para crear el alias desde la ubicación larga (ej: 01-30-026-05 -> 26.05)
             const generarAlias = (ubi) => {
                 const partes = ubi.split('-');
                 if (partes.length === 4) {
@@ -160,11 +160,10 @@
                 return ubi;
             };
 
-            // Busca validando el nombre completo o el alias corto
             const itemEncontrado = dbLocal.find(i => i && i.datos && (i.datos[0] === val || generarAlias(i.datos[0]) === val));
 
             if(itemEncontrado) {
-                const ubiReal = itemEncontrado.datos[0]; // Captura el formato original largo (01-30-026-05)
+                const ubiReal = itemEncontrado.datos[0]; 
                 
                 if (bloqueosActivos[ubiReal]) {
                     vibrar('error');
@@ -205,11 +204,13 @@
     }
 
     function cerrarUbicacion() {
-        if (ubiActiva) db.ref(`inventario_actual/bloqueos/${ubiActiva}`).remove();
-        ubiActiva = "";
-        auditor = "";
-        document.getElementById('listaArea').innerHTML = "<center><br><small style='color:gray'>Ubicación cerrada. Escanee la siguiente...</small></center>";
-        document.getElementById('lector').focus();
+        if(confirm("⚠️ ¿Seguro que desea cerrar este pallet?\n\nAsegúrese de haber ingresado todas las cantidades halladas.")) {
+            if (ubiActiva) db.ref(`inventario_actual/bloqueos/${ubiActiva}`).remove();
+            ubiActiva = "";
+            auditor = "";
+            document.getElementById('listaArea').innerHTML = "<center><br><small style='color:gray'>Ubicación cerrada. Escanee la siguiente...</small></center>";
+            document.getElementById('lector').focus();
+        }
     }
 
     function renderUbi() {
@@ -235,7 +236,7 @@
             html += `
                 <tr class="${i.visto ? 'visto-row' : ''}">
                     <td><b>${i.datos[1]}</b></td>
-                    <td><input type="number" id="cant_${i.rowId}" class="input-incidencia input-cantidad" placeholder="0" value="${i.cantidadHallada || ''}" ${i.visto ? 'disabled' : ''}></td>
+                    <td><input type="number" id="cant_${i.rowId}" class="input-incidencia input-cantidad" placeholder="0" value="${i.cantidadHallada || ''}" ${i.visto ? 'disabled' : ''} onkeydown="if(event.key === 'Enter') marcar(${i.rowId})"></td>
                     <td><input type="text" class="input-incidencia" placeholder="Nota..." value="${i.incidencia || ''}" onchange="guardarIncidencia(${i.rowId}, this.value)"></td>
                     <td><button class="btn-check ${i.visto ? 'btn-anular' : ''}" onclick="marcar(${i.rowId})">${i.visto ? 'ANULAR' : 'INGRESAR'}</button></td>
                 </tr>
@@ -270,6 +271,17 @@
         `;
 
         area.innerHTML = html;
+
+        if (enfocarSiguiente) {
+            setTimeout(() => {
+                const inputsLibres = document.querySelectorAll('.input-cantidad:not([disabled])');
+                if(inputsLibres.length > 0) {
+                    inputsLibres[0].focus();
+                    inputsLibres[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }, 100);
+            enfocarSiguiente = false;
+        }
     }
 
     function abrirModalSobrante() {
@@ -326,6 +338,7 @@
                 auditor: auditor,
                 cantidadHallada: cantInput
             });
+            enfocarSiguiente = true;
         } else {
             vibrar('exito');
             db.ref(`inventario_actual/items/${id}`).update({ 

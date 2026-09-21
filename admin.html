@@ -114,6 +114,7 @@
 
     let dataLocal = [], dataSobrantes = [];
     let dataLocalObj = {}, dataSobrantesObj = {};
+    let bloqueosActivos = {};
     let timeoutAdmin = null, debounceTimer = null;
 
     let paginaActual = 1;
@@ -188,6 +189,10 @@
     db.ref('inventario_actual/sobrantes').on('child_added', snap => { dataSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; optimizarRenderAdmin(); });
     db.ref('inventario_actual/sobrantes').on('child_changed', snap => { dataSobrantesObj[snap.key] = {id: snap.key, ...snap.val()}; optimizarRenderAdmin(); });
     db.ref('inventario_actual/sobrantes').on('child_removed', snap => { delete dataSobrantesObj[snap.key]; optimizarRenderAdmin(); });
+
+    db.ref('inventario_actual/bloqueos').on('child_added', snap => { bloqueosActivos[snap.key] = snap.val(); optimizarRenderAdmin(); });
+    db.ref('inventario_actual/bloqueos').on('child_changed', snap => { bloqueosActivos[snap.key] = snap.val(); optimizarRenderAdmin(); });
+    db.ref('inventario_actual/bloqueos').on('child_removed', snap => { delete bloqueosActivos[snap.key]; optimizarRenderAdmin(); });
 
     function calcularEstadisticas() {
         const totalItems = dataLocal.filter(i => i && i.datos).length;
@@ -283,9 +288,10 @@
         let html = '';
         elementosPagina.forEach(item => {
             if (item.tipo === 'base') {
+                let candado = bloqueosActivos[item.datos[0]] ? ` <span style="background:#f59e0b;color:#000;padding:2px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:5px;white-space:nowrap;">🔒 ${bloqueosActivos[item.datos[0]]}</span>` : '';
                 html += `
                     <tr class="${item.visto ? 'visto' : ''}">
-                        <td><b>${item.datos[0]}</b></td>
+                        <td><b>${item.datos[0]}</b>${candado}</td>
                         <td>${item.datos[1]}</td>
                         <td>${item.datos[2]}</td>
                         <td>${item.visto ? '✅ ' + (item.cantidadHallada !== undefined && item.cantidadHallada !== null ? item.cantidadHallada : '') : '⏳'}</td>
@@ -294,9 +300,10 @@
                     </tr>
                 `;
             } else if (item.tipo === 'sobrante') {
+                let candadoSob = bloqueosActivos[item.ubicacion] ? ` <span style="background:#f59e0b;color:#000;padding:2px 5px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:5px;white-space:nowrap;">🔒 ${bloqueosActivos[item.ubicacion]}</span>` : '';
                 html += `
                     <tr class="fila-extra">
-                        <td><b>${item.ubicacion}</b></td>
+                        <td><b>${item.ubicacion}</b>${candadoSob}</td>
                         <td>${item.codigo} <span style="background:#eab308;color:#000;padding:2px 4px;border-radius:4px;font-size:10px;font-weight:bold;margin-left:5px;">SOBRANTE</span></td>
                         <td>0</td>
                         <td>✅ ${item.cantidad}</td>
